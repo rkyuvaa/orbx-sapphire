@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Small, explicit baseline for consistent rendering around the Tailwind preflight. */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { min-width: 320px; min-height: 100vh; margin: 0; }
+img, picture, svg, canvas { display: block; max-width: 100%; }
+button, input, select, textarea { font: inherit; }
+button, [role='button'] { touch-action: manipulation; }
+
+.offline-status {
+  position: fixed;
+  z-index: 10000;
+  inset: 0 0 auto;
+  padding: .75rem 1rem;
+  background: var(--color-bg-default, #0A1712);
+  color: var(--color-accent, #16C47F);
+  border-bottom: 1px solid var(--color-border);
+  font-size: .875rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.browser-notice,
+.app-error { display: grid; min-height: 100vh; place-items: center; padding: 1.5rem; background: var(--bg, #0A1712); color: var(--text, #E6F0EC); }
+.browser-notice section,
+.app-error section { width: min(100%, 34rem); padding: 2rem; border: 1px solid var(--bd, rgba(255,255,255,0.09)); border-radius: 14px; background: var(--card, #0F211A); box-shadow: var(--sh); }
+.browser-notice h1,
+.app-error h1 { margin-top: 0; color: var(--color-accent, #16C47F); }
+.browser-notice p,
+.app-error p { line-height: 1.55; }
+.browser-notice__detail { color: var(--mut, #3ae09d); font-size: .875rem; }
+.app-error button { padding: .625rem 1rem; border: 0; border-radius: 8px; background: var(--color-accent, #16C47F); color: var(--color-accent-contrast, #0A1712); cursor: pointer; font-weight: 700; }
