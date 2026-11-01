@@ -343,7 +343,29 @@ h6, .h6 {
   place-items: center;
   padding: 16px;
   background: var(--scrim);
+  transition: left var(--dc) var(--eo), width var(--dc) var(--eo);
 }
+
+/* Offset modal overlay to the right of the persistent workspace sidebar */
+@media (min-width: 600px) {
+  .workspace-main:not(.sidebar-collapsed) .app-modal-backdrop {
+    left: 230px;
+    width: calc(100vw - 230px);
+  }
+  .platform-main .app-modal-backdrop {
+    left: 240px;
+    width: calc(100vw - 240px);
+  }
+}
+
+@media (max-width: 599px) {
+  .workspace-main .app-modal-backdrop,
+  .platform-main .app-modal-backdrop {
+    left: 0;
+    width: 100vw;
+  }
+}
+
 .app-modal-panel {
   width: min(760px, 100%);
   max-height: 90vh;
@@ -353,7 +375,17 @@ h6, .h6 {
   box-shadow: var(--shh);
 }
 .app-modal-panel-wide {
-  width: min(1140px, 100%);
+  width: min(1380px, calc(100% - 32px));
+  max-width: 100%;
+}
+
+.app-modal-panel-fullscreen {
+  width: calc(100% - 24px) !important;
+  max-width: none !important;
+  height: calc(100dvh - 24px) !important;
+  max-height: calc(100dvh - 24px) !important;
+  border-radius: 16px;
+  padding: 24px 32px;
 }
 .app-modal-header {
   display: flex;
@@ -791,8 +823,20 @@ html[data-theme='light'] .measurement-config-field {
   margin-bottom: 8px;
 }
 .order-creation-actions {
-  gap: 8px;
-  margin-top: 12px;
+  position: sticky;
+  bottom: -22px;
+  background: var(--card);
+  padding: 14px 0 4px;
+  border-top: 1px solid var(--bd);
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  z-index: 20;
+}
+.app-modal-panel-fullscreen .order-creation-actions {
+  bottom: -32px;
+  padding: 16px 0 8px;
 }
 .settings-tabs {
   display: flex;

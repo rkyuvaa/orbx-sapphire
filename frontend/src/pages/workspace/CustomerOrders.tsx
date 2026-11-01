@@ -1170,6 +1170,7 @@ export function CustomerOrdersPage() {
           headerClassName="order-creation-modal-header"
           onClose={() => setOrderDialogOpen(false)}
           wide
+          defaultFullScreen
         >
           <form id="create-customer-order-form" className="order-creation-form" onSubmit={createOrder}>
             <div className="order-creation-customer-fields">
