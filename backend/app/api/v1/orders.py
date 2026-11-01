@@ -513,6 +513,38 @@ async def update_order_status(
     return await _get_order_out(db, company.id, order.id)
 
 
+@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_order(
+    order_id: str,
+    tenant: tuple[Company, CompanyMembership] = Depends(get_tenant_context),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete an order and all its snapshots/history."""
+    company, _ = tenant
+    result = await db.execute(
+        select(Order).where(Order.id == order_id, Order.company_id == company.id)
+    )
+    order = result.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    order_number = order.order_number
+    customer_id = order.customer_id
+    await db.delete(order)
+    await db.commit()
+
+    await log_audit_event(
+        db,
+        company_id=company.id,
+        action="order.deleted",
+        entity_type="order",
+        entity_id=order_id,
+        user_id=current_user.id,
+        details={"order_number": order_number, "customer_id": customer_id},
+    )
+
+
 # ============ Measurement Tab Endpoints ============
 
 @router.post("/measurement-config/tabs", response_model=MeasurementTabOut, status_code=status.HTTP_201_CREATED)

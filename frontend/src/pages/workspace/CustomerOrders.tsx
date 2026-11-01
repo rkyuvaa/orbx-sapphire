@@ -4,6 +4,7 @@ import { apiRequest } from '../../lib/api';
 import { useTenant } from '../../context/TenantContext';
 import { useToast } from '../../context/ToastContext';
 import { IconPlus, IconPhone, IconOrders } from '../../components/ui/Icons';
+import { MoreVertical, Trash2, Eye } from 'lucide-react';
 import { Modal } from '../../components/ui/Modal';
 import { handleRecordRowClick, handleRecordRowKeyDown } from '../../utils/recordRow';
 
@@ -281,6 +282,9 @@ export function CustomerOrdersPage() {
   const [customerEdit, setCustomerEdit] = useState<Customer | null>(null);
   const [customerFormSaving, setCustomerFormSaving] = useState(false);
   const [deletingCustomerId, setDeletingCustomerId] = useState<string | null>(null);
+  const [activeOrderMenuId, setActiveOrderMenuId] = useState<string | null>(null);
+  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const [detailMenuOpen, setDetailMenuOpen] = useState(false);
   const [tabName, setTabName] = useState('');
   const [showTabForm, setShowTabForm] = useState(false);
   const [showFieldForm, setShowFieldForm] = useState(false);
@@ -614,6 +618,39 @@ export function CustomerOrdersPage() {
     }
   };
 
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!(event.target as HTMLElement).closest('.order-action-menu-container')) {
+        setActiveOrderMenuId(null);
+        setDetailMenuOpen(false);
+      }
+    };
+    if (activeOrderMenuId || detailMenuOpen) {
+      document.addEventListener('click', handleOutsideClick);
+      return () => document.removeEventListener('click', handleOutsideClick);
+    }
+  }, [activeOrderMenuId, detailMenuOpen]);
+
+  const deleteOrder = async (order: OrderSummary | OrderDetails) => {
+    if (!window.confirm(`Delete order ${order.order_number}? This cannot be undone.`)) {
+      return;
+    }
+    setDeletingOrderId(order.id);
+    try {
+      await apiRequest(`/orders/${order.id}`, { method: 'DELETE' });
+      setOrders((current) => current.filter((item) => item.id !== order.id));
+      if (selectedOrder?.id === order.id) {
+        setSelectedOrder(null);
+      }
+      toast(`Order ${order.order_number} deleted`, 'success');
+      await loadOrders();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Failed to delete order', 'error');
+    } finally {
+      setDeletingOrderId(null);
+    }
+  };
+
   const updateOrderDueDate = async () => {
     if (!selectedOrder) return;
     try {
@@ -930,7 +967,93 @@ export function CustomerOrdersPage() {
                       </td>
                       <td style={{ padding: '14px 16px', color: 'var(--t2)' }}>{dateLabel(order.order_date)}</td>
                       <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                        <button type="button" className="btn sm" onClick={() => void openOrder(order.id)}>View details</button>
+                        <div className="order-action-menu-container" style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <button type="button" className="btn sm" onClick={() => void openOrder(order.id)}>View details</button>
+                          <button
+                            type="button"
+                            className="btn sm"
+                            aria-label={`Actions for order ${order.order_number}`}
+                            title="More actions"
+                            style={{ padding: '0 6px', height: 32, width: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setActiveOrderMenuId((curr) => curr === order.id ? null : order.id);
+                            }}
+                          >
+                            <MoreVertical size={16} />
+                          </button>
+                          {activeOrderMenuId === order.id && (
+                            <div
+                              className="dropdown-menu"
+                              style={{
+                                position: 'absolute',
+                                right: 0,
+                                top: '100%',
+                                marginTop: 4,
+                                background: 'var(--card)',
+                                border: '1px solid var(--bd)',
+                                borderRadius: 8,
+                                boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+                                zIndex: 60,
+                                minWidth: 150,
+                                padding: 4,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 2,
+                                textAlign: 'left',
+                              }}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: 'var(--text)',
+                                  fontSize: 13,
+                                  cursor: 'pointer',
+                                  borderRadius: 6,
+                                  textAlign: 'left',
+                                }}
+                                onClick={() => {
+                                  setActiveOrderMenuId(null);
+                                  void openOrder(order.id);
+                                }}
+                              >
+                                <Eye size={14} /> View details
+                              </button>
+                              <button
+                                type="button"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: 'var(--danger, #ef4444)',
+                                  fontSize: 13,
+                                  cursor: 'pointer',
+                                  borderRadius: 6,
+                                  textAlign: 'left',
+                                }}
+                                disabled={deletingOrderId === order.id}
+                                onClick={() => {
+                                  setActiveOrderMenuId(null);
+                                  void deleteOrder(order);
+                                }}
+                              >
+                                <Trash2 size={14} /> {deletingOrderId === order.id ? 'Deleting…' : 'Delete order'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1358,12 +1481,77 @@ export function CustomerOrdersPage() {
               <div style={{ color: 'var(--t2)', marginTop: 3, fontSize: '13px' }}>📞 {selectedOrder.customer.phone_number}</div>
               {selectedOrder.customer.address && <div style={{ color: 'var(--t2)', fontSize: '12.5px', marginTop: 2 }}>📍 {selectedOrder.customer.address}</div>}
             </div>
-            {nextStatus && selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'delivered' && (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {nextStatus && selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'delivered' && (
                 <button type="button" className="btn pri sm" onClick={() => void changeStatus(nextStatus.value)}>Move to {nextStatus.label}</button>
+              )}
+              {selectedOrder.status !== 'cancelled' && (
                 <button type="button" className="btn danger sm" onClick={() => void changeStatus('cancelled')}>Cancel order</button>
+              )}
+              <div style={{ position: 'relative', display: 'inline-flex' }} className="order-action-menu-container">
+                <button
+                  type="button"
+                  className="btn sm"
+                  aria-label="Order actions"
+                  title="More actions"
+                  style={{ padding: '0 8px', height: 32 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDetailMenuOpen((prev) => !prev);
+                  }}
+                >
+                  <MoreVertical size={16} />
+                </button>
+                {detailMenuOpen && (
+                  <div
+                    className="dropdown-menu"
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: '100%',
+                      marginTop: 4,
+                      background: 'var(--card)',
+                      border: '1px solid var(--bd)',
+                      borderRadius: 8,
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+                      zIndex: 60,
+                      minWidth: 150,
+                      padding: 4,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                      textAlign: 'left',
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        width: '100%',
+                        padding: '8px 12px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--danger, #ef4444)',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        borderRadius: 6,
+                        textAlign: 'left',
+                      }}
+                      disabled={deletingOrderId === selectedOrder.id}
+                      onClick={() => {
+                        setDetailMenuOpen(false);
+                        void deleteOrder(selectedOrder);
+                      }}
+                    >
+                      <Trash2 size={14} /> {deletingOrderId === selectedOrder.id ? 'Deleting…' : 'Delete order'}
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '14px', alignItems: 'end', marginBottom: 20 }}>

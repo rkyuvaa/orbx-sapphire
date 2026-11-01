@@ -828,3 +828,24 @@ async def test_order_measurements_exact_scenario_order1_22_order2_33(
     order1_check = await client.get(f"/api/v1/orders/{order1['id']}", headers=headers)
     assert order1_check.status_code == 200
     assert order1_check.json()["measurements"][0]["value"] == "22"
+
+
+@pytest.mark.asyncio
+async def test_order_can_be_deleted(client: AsyncClient, seed_data):
+    headers = await auth_headers(client, "owner1@company-a.com", seed_data["comp1"].id)
+    created = await client.post(
+        "/api/v1/orders",
+        headers=headers,
+        json={
+            "customer": {"name": "Delete Test Customer", "phone_number": "+919988771122"},
+            "order_number": "ORD-DEL-001",
+        },
+    )
+    assert created.status_code == 201, created.text
+    order_id = created.json()["id"]
+
+    delete_resp = await client.delete(f"/api/v1/orders/{order_id}", headers=headers)
+    assert delete_resp.status_code == 204
+
+    get_resp = await client.get(f"/api/v1/orders/{order_id}", headers=headers)
+    assert get_resp.status_code == 404
