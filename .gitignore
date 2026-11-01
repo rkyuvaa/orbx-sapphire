@@ -76,3 +76,7 @@ dump.rdb
 # Celery
 celerybeat-schedule
 celerybeat.pid
+
+# SSL & Certificates
+certbot/
+nginx/conf.d/ssl.conf

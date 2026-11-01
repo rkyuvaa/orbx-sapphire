@@ -1,0 +1,24 @@
+# ==============================================================================
+# Host Nginx Configuration Example (If host OS manages SSL via Certbot)
+# Place at /etc/nginx/sites-available/orbx.conf and symlink to sites-enabled
+# Then run: certbot --nginx -d nexus.orbx.in
+# ==============================================================================
+
+server {
+    listen 80;
+    server_name nexus.orbx.in;
+
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass http://127.0.0.1:8050;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+}
