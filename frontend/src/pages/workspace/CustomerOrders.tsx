@@ -1305,6 +1305,7 @@ export function CustomerOrdersPage() {
           title={`Measurements · ${customerMeasurementCustomer.name}`}
           onClose={() => setCustomerMeasurementCustomer(null)}
           wide
+          defaultFullScreen
         >
           <p style={{ color: 'var(--t2)', marginBottom: 14 }}>
             These are the customer's current measurements. Changes are shared with every order for this customer.
@@ -1331,53 +1332,62 @@ export function CustomerOrdersPage() {
       )}
 
       {selectedOrder && (
-        <Modal title={selectedOrder.order_number} onClose={() => setSelectedOrder(null)}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, marginBottom: 18 }}>
+        <Modal
+          title={selectedOrder.order_number}
+          headerContent={
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+              <h2 style={{ margin: 0, fontSize: '22px', fontWeight: 800 }}>{selectedOrder.order_number}</h2>
+              <span className={`badge ${selectedOrder.is_overdue ? 'overdue' : selectedOrder.status === 'delivered' ? 'active' : 'pending'}`} style={{ fontSize: '12px' }}>
+                {selectedOrder.is_overdue ? 'Overdue' : labelForStatus(selectedOrder.status)}
+              </span>
+            </div>
+          }
+          onClose={() => setSelectedOrder(null)}
+          wide
+          defaultFullScreen
+        >
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 16, padding: '16px 20px', background: 'var(--soft)', borderRadius: '12px', marginBottom: 20 }}>
             <div>
-              <b>{selectedOrder.customer.name}</b>
-              <div style={{ color: 'var(--t2)', marginTop: 3 }}>{selectedOrder.customer.phone_number}</div>
-              {selectedOrder.customer.address && <div style={{ color: 'var(--t2)' }}>{selectedOrder.customer.address}</div>}
+              <b style={{ fontSize: '16px', color: 'var(--text)' }}>{selectedOrder.customer.name}</b>
+              <div style={{ color: 'var(--t2)', marginTop: 3, fontSize: '13px' }}>📞 {selectedOrder.customer.phone_number}</div>
+              {selectedOrder.customer.address && <div style={{ color: 'var(--t2)', fontSize: '12.5px', marginTop: 2 }}>📍 {selectedOrder.customer.address}</div>}
             </div>
-            <span className={`badge ${selectedOrder.is_overdue ? 'overdue' : selectedOrder.status === 'delivered' ? 'active' : 'pending'}`}>
-              {selectedOrder.is_overdue ? 'Overdue' : labelForStatus(selectedOrder.status)}
-            </span>
+            {nextStatus && selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'delivered' && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="btn pri sm" onClick={() => void changeStatus(nextStatus.value)}>Move to {nextStatus.label}</button>
+                <button type="button" className="btn danger sm" onClick={() => void changeStatus('cancelled')}>Cancel order</button>
+              </div>
+            )}
           </div>
 
-          <div style={{ ...gridStyle, marginBottom: 16 }}>
-<div className="fld">
-                <label htmlFor="edit-order-number">Order number</label>
-                <input id="edit-order-number" maxLength={50} value={orderNumber} onChange={(event) => setOrderNumber(event.target.value)} />
-              </div>
-              <div className="fld">
-                <label htmlFor="edit-order-date">Order date</label>
-                <input id="edit-order-date" type="date" value={orderDate} onChange={(event) => setOrderDate(event.target.value)} />
-              </div>
-              <div className="fld">
-                <label htmlFor="edit-order-due">Due date</label>
-                <input id="edit-order-due" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
-              </div>
-              <div className="fld" style={{ maxWidth: 260 }}>
-                <label htmlFor="edit-order-priority">Priority</label>
-                <select id="edit-order-priority" className={`priority-select priority-${priority}`} value={priority} onChange={(event) => setPriority(event.target.value as OrderPriority)}>
-                  <option value="high">High</option>
-                  <option value="normal">Normal</option>
-                  <option value="low">Low</option>
-                </select>
-              </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 18 }}>
-            <button type="button" className="btn sm" onClick={() => void updateOrderDueDate()}>Save order details</button>
-          </div>
-
-          {nextStatus && selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'delivered' && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0 20px' }}>
-              <button type="button" className="btn pri sm" onClick={() => void changeStatus(nextStatus.value)}>Move to {nextStatus.label}</button>
-              <button type="button" className="btn danger sm" onClick={() => void changeStatus('cancelled')}>Cancel order</button>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '14px', alignItems: 'end', marginBottom: 20 }}>
+            <div className="fld" style={{ margin: 0 }}>
+              <label htmlFor="edit-order-number">Order number</label>
+              <input id="edit-order-number" maxLength={50} value={orderNumber} onChange={(event) => setOrderNumber(event.target.value)} />
             </div>
-          )}
+            <div className="fld" style={{ margin: 0 }}>
+              <label htmlFor="edit-order-date">Order date</label>
+              <input id="edit-order-date" type="date" value={orderDate} onChange={(event) => setOrderDate(event.target.value)} />
+            </div>
+            <div className="fld" style={{ margin: 0 }}>
+              <label htmlFor="edit-order-due">Due date</label>
+              <input id="edit-order-due" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+            </div>
+            <div className="fld" style={{ margin: 0 }}>
+              <label htmlFor="edit-order-priority">Priority</label>
+              <select id="edit-order-priority" className={`priority-select priority-${priority}`} value={priority} onChange={(event) => setPriority(event.target.value as OrderPriority)}>
+                <option value="high">High</option>
+                <option value="normal">Normal</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div>
+              <button type="button" className="btn sm" style={{ height: '42px', width: '100%' }} onClick={() => void updateOrderDueDate()}>Save order details</button>
+            </div>
+          </div>
 
-          <h3 style={{ fontSize: 14, marginBottom: 8 }}>Measurements</h3>
-          <div className="card" style={{ padding: 14, marginBottom: 18 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Measurements</h3>
+          <div className="card" style={{ padding: 18, marginBottom: 24 }}>
             <MeasurementEditor
               tabs={enabledTabs}
               activeTabId={detailMeasurementTab?.id || ''}
@@ -1393,7 +1403,7 @@ export function CustomerOrdersPage() {
             </div>
           </div>
 
-          <h3 style={{ fontSize: 14, marginBottom: 10 }}>Status timeline</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Status timeline</h3>
           <div style={{ display: 'grid', gap: 0 }}>
             {selectedOrder.status_history.map((item, index) => (
               <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '20px 1fr', gap: 10, minHeight: 52 }}>
