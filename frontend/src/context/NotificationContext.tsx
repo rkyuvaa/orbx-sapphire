@@ -87,6 +87,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     void refresh();
+    // Poll every 30 seconds so new reminders update the badge count in real time
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, 30000);
+    return () => window.clearInterval(interval);
   }, [refresh]);
 
   useEffect(() => clear, [clear, activeCompanyId, token]);
