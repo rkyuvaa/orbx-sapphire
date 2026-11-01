@@ -47,16 +47,19 @@ ORDER_STATUS_SEQUENCE = [
 # Customer schemas
 class CustomerBase(BaseModel):
     name: str = Field(..., min_length=2, max_length=255)
-    phone_number: str = Field(..., min_length=10, max_length=20)
+    phone_number: str = Field(..., max_length=20)
     address: Optional[str] = Field(None, max_length=500)
     notes: Optional[str] = None
 
     @field_validator("phone_number")
     @classmethod
     def normalize_phone(cls, value: str) -> str:
-        normalized = re.sub(r"[\s().-]", "", value)
-        if not re.fullmatch(r"\+?\d{10,15}", normalized):
-            raise ValueError("Phone number must contain 10 to 15 digits")
+        if not value or not value.strip():
+            raise ValueError("Please check the Mobile number")
+        normalized = re.sub(r"[\s().-]", "", value.strip())
+        digits = re.sub(r"\D", "", normalized)
+        if len(digits) < 10 or not re.fullmatch(r"\+?\d{10,20}", normalized):
+            raise ValueError("Please check the Mobile number")
         return normalized
 
 
@@ -66,7 +69,7 @@ class CustomerCreate(CustomerBase):
 
 class CustomerUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=255)
-    phone_number: Optional[str] = Field(None, min_length=10, max_length=20)
+    phone_number: Optional[str] = Field(None, max_length=20)
     address: Optional[str] = Field(None, max_length=500)
     notes: Optional[str] = None
 
@@ -75,9 +78,12 @@ class CustomerUpdate(BaseModel):
     def normalize_phone(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return value
-        normalized = re.sub(r"[\s().-]", "", value)
-        if not re.fullmatch(r"\+?\d{10,15}", normalized):
-            raise ValueError("Phone number must contain 10 to 15 digits")
+        if not value.strip():
+            raise ValueError("Please check the Mobile number")
+        normalized = re.sub(r"[\s().-]", "", value.strip())
+        digits = re.sub(r"\D", "", normalized)
+        if len(digits) < 10 or not re.fullmatch(r"\+?\d{10,20}", normalized):
+            raise ValueError("Please check the Mobile number")
         return normalized
 
 

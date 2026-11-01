@@ -49,7 +49,30 @@ export async function apiRequest<T = any>(
         window.location.href = '/login';
       }
     }
-    const message = data?.detail || 'An unexpected error occurred';
+    let message = 'An unexpected error occurred';
+    if (typeof data?.detail === 'string') {
+      message = data.detail;
+    } else if (Array.isArray(data?.detail)) {
+      const phoneErr = data.detail.find((e: any) =>
+        e.loc?.includes('phone_number') ||
+        e.loc?.includes('phone') ||
+        /phone|mobile/i.test(e.msg || '')
+      );
+      if (phoneErr) {
+        message = 'Please check the Mobile number';
+      } else {
+        const msgs = data.detail.map((e: any) => {
+          if (typeof e === 'string') return e;
+          if (e.msg) {
+            return String(e.msg).replace(/^Value error,\s*/i, '');
+          }
+          return typeof e === 'object' ? JSON.stringify(e) : String(e);
+        });
+        message = msgs.join(', ');
+      }
+    } else if (typeof data?.message === 'string') {
+      message = data.message;
+    }
     throw new ApiError(response.status, message, data);
   }
 

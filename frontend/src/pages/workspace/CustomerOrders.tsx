@@ -529,6 +529,13 @@ export function CustomerOrdersPage() {
 
   const createOrder = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!customerId) {
+      const digits = (newCustomer.phone_number || '').replace(/\D/g, '');
+      if (digits.length < 10) {
+        toast('Please check the Mobile number', 'error');
+        return;
+      }
+    }
     setSaving(true);
     try {
       const measurements: OrderMeasurementInput[] = enabledTabs.flatMap((tab) =>
@@ -561,6 +568,11 @@ export function CustomerOrdersPage() {
 
   const saveCustomer = async (event: React.FormEvent) => {
     event.preventDefault();
+    const digits = (customerForm.phone_number || '').replace(/\D/g, '');
+    if (digits.length < 10) {
+      toast('Please check the Mobile number', 'error');
+      return;
+    }
     setCustomerFormSaving(true);
     try {
       if (customerEdit) {
@@ -579,7 +591,18 @@ export function CustomerOrdersPage() {
       setCustomerDialogOpen(false);
       setCustomerEdit(null);
       setCustomerForm({ name: '', phone_number: '', address: '' });
-      await loadCustomers(customerSearch);
+      if (selectedOrder && customerEdit && selectedOrder.customer_id === customerEdit.id) {
+        setSelectedOrder((prev) => prev ? {
+          ...prev,
+          customer: {
+            ...prev.customer,
+            name: customerForm.name,
+            phone_number: customerForm.phone_number,
+            address: customerForm.address,
+          },
+        } : null);
+      }
+      await Promise.all([loadCustomers(customerSearch), loadOrders()]);
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Failed to save customer', 'error');
     } finally {

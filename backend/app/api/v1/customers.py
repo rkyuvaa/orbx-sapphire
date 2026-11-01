@@ -203,6 +203,7 @@ async def update_customer(
         )
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Customer with this phone number already exists")
+        customer.phone_number = data.phone_number
 
     if data.address is not None:
         customer.address = data.address

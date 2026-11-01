@@ -849,3 +849,41 @@ async def test_order_can_be_deleted(client: AsyncClient, seed_data):
 
     get_resp = await client.get(f"/api/v1/orders/{order_id}", headers=headers)
     assert get_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_customer_phone_validation_and_update(client: AsyncClient, seed_data):
+    headers = await auth_headers(client, "owner1@company-a.com", seed_data["comp1"].id)
+
+    # 1. Less than 10 digits returns 422 with "Please check the Mobile number"
+    short_phone_resp = await client.post(
+        "/api/v1/orders/customers",
+        headers=headers,
+        json={"name": "Short Phone", "phone_number": "987654321"},  # 9 digits
+    )
+    assert short_phone_resp.status_code == 422
+    assert "Please check the Mobile number" in short_phone_resp.text
+
+    # 2. More than 10 digits (e.g. 12 digits with country code) succeeds
+    valid_resp = await client.post(
+        "/api/v1/orders/customers",
+        headers=headers,
+        json={"name": "Long Phone", "phone_number": "+919876543210"},  # 12 digits
+    )
+    assert valid_resp.status_code == 201, valid_resp.text
+    customer_id = valid_resp.json()["id"]
+    assert valid_resp.json()["phone_number"] == "+919876543210"
+
+    # 3. User tries to change phone number in Customer Master -> it changes successfully
+    update_resp = await client.patch(
+        f"/api/v1/orders/customers/{customer_id}",
+        headers=headers,
+        json={"phone_number": "987650123456"},  # 12 digits
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    assert update_resp.json()["phone_number"] == "987650123456"
+
+    # Verify get customer returns updated phone number
+    get_resp = await client.get(f"/api/v1/orders/customers/{customer_id}", headers=headers)
+    assert get_resp.status_code == 200
+    assert get_resp.json()["phone_number"] == "987650123456"
