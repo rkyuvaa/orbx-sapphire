@@ -39,6 +39,12 @@ async def init_db_and_seed():
             )
             session.add(superadmin)
             logger.info(f"Seeded Platform Super Admin: {settings.FIRST_SUPERADMIN_EMAIL}")
+        else:
+            # Ensure the superadmin password and active status match the configured settings
+            superadmin.hashed_password = get_password_hash(settings.FIRST_SUPERADMIN_PASSWORD)
+            superadmin.is_superadmin = True
+            superadmin.is_active = True
+            logger.info(f"Verified/updated Platform Super Admin: {settings.FIRST_SUPERADMIN_EMAIL}")
 
         # 2. Seed Default Subscription Plans
         plan_check = await session.execute(select(SubscriptionPlan))
@@ -92,6 +98,12 @@ async def lifespan(app: FastAPI):
             "FIRST_SUPERADMIN_PASSWORD is using the default value! "
             "Set a custom FIRST_SUPERADMIN_PASSWORD in your .env file for production."
         )
+
+    # Seed initial Super Admin and default subscription plans
+    try:
+        await init_db_and_seed()
+    except Exception as e:
+        logger.error(f"Failed to seed initial database: {e}")
 
     # Create Redis client at startup
     logger.info("Initializing Redis client...")
