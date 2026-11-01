@@ -13,6 +13,7 @@ from app.models.order import (
     MeasurementTab,
     Order,
     OrderDocumentNumbering,
+    OrderMeasurement,
     OrderReminderDispatch,
     OrderStatusHistory,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "CustomerMeasurement",
     "Order",
     "OrderDocumentNumbering",
+    "OrderMeasurement",
     "OrderReminderDispatch",
     "OrderStatusHistory",
     "MeasurementTab",

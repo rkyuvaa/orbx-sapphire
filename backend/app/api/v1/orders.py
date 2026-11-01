@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.customer_measurements import save_customer_measurements
+from app.core.customer_measurements import save_customer_measurements, save_order_measurements
 from app.core.document_numbering import (
     allocate_order_number,
     lock_order_document_numbering,
@@ -19,13 +19,13 @@ from app.models.user import User
 from app.models.company import Company
 from app.models.membership import CompanyMembership
 from app.models.order import (
-    Customer, CustomerMeasurement, Order, OrderStatusHistory,
+    Customer, CustomerMeasurement, Order, OrderMeasurement, OrderStatusHistory,
     MeasurementTab, MeasurementField
 )
 from app.schemas.order import (
     OrderCreate, OrderUpdate, OrderStatusUpdate, OrderOut, OrderListOut,
-    CustomerOut, CustomerMeasurementOut, OrderStatusHistoryOut,
-    OrderStatus as OrderStatusSchema, ORDER_STATUS_SEQUENCE,
+    CustomerOut, CustomerMeasurementOut, OrderMeasurementOut, CustomerMeasurementInput,
+    OrderStatusHistoryOut, OrderStatus as OrderStatusSchema, ORDER_STATUS_SEQUENCE,
     MeasurementTabCreate, MeasurementTabUpdate, MeasurementTabOut, MeasurementTabOrderUpdate,
     MeasurementFieldCreate, MeasurementFieldUpdate, MeasurementFieldOut,
     MeasurementFieldOrderUpdate
@@ -50,11 +50,19 @@ async def _get_order_out(db: AsyncSession, company_id: str, order_id: str) -> Or
 
     measurements = (
         await db.execute(
-            select(CustomerMeasurement)
-            .where(CustomerMeasurement.customer_id == order.customer_id)
-            .order_by(CustomerMeasurement.tab_name, CustomerMeasurement.field_name)
+            select(OrderMeasurement)
+            .where(OrderMeasurement.order_id == order.id)
+            .order_by(OrderMeasurement.tab_name, OrderMeasurement.field_name)
         )
     ).scalars().all()
+    if not measurements:
+        measurements = (
+            await db.execute(
+                select(CustomerMeasurement)
+                .where(CustomerMeasurement.customer_id == order.customer_id)
+                .order_by(CustomerMeasurement.tab_name, CustomerMeasurement.field_name)
+            )
+        ).scalars().all()
     return OrderOut(
         id=order.id,
         company_id=order.company_id,
@@ -81,7 +89,7 @@ async def _get_order_out(db: AsyncSession, company_id: str, order_id: str) -> Or
             )
             for item in order.status_history
         ],
-        measurements=[CustomerMeasurementOut.model_validate(item) for item in measurements],
+        measurements=[OrderMeasurementOut.model_validate(item) for item in measurements],
     )
 
 
@@ -195,12 +203,19 @@ async def create_order(
     )
     db.add(status_history)
 
+    measurement_values = {measurement.field_id: measurement.value for measurement in data.measurements}
     try:
+        await save_order_measurements(
+            db,
+            order,
+            company.id,
+            measurement_values,
+        )
         await save_customer_measurements(
             db,
             customer,
             company.id,
-            {measurement.field_id: measurement.value for measurement in data.measurements},
+            measurement_values,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -390,6 +405,12 @@ async def update_order(
         order.due_date = data.due_date
     if data.priority is not None:
         order.priority = data.priority
+    if data.measurements is not None:
+        measurement_dict = {m.field_id: m.value for m in data.measurements}
+        try:
+            await save_order_measurements(db, order, company.id, measurement_dict)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
     await db.commit()
 
     await log_audit_event(
@@ -403,6 +424,37 @@ async def update_order(
     )
 
     return await _get_order_out(db, company.id, order.id)
+
+
+@router.put("/{order_id}/measurements", response_model=List[OrderMeasurementOut])
+async def update_order_measurements(
+    order_id: str,
+    data: List[CustomerMeasurementInput],
+    tenant: tuple[Company, CompanyMembership] = Depends(get_tenant_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update measurements for this specific order only (historical snapshot)."""
+    company, _ = tenant
+    order = (
+        await db.execute(
+            select(Order).where(
+                Order.id == order_id,
+                Order.company_id == company.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    values = {item.field_id: item.value for item in data}
+    if len(values) != len(data):
+        raise HTTPException(status_code=400, detail="A measurement field may only be submitted once")
+    try:
+        measurements = await save_order_measurements(db, order, company.id, values)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    await db.commit()
+    return measurements
 
 
 @router.patch("/{order_id}/status", response_model=OrderOut)
@@ -543,7 +595,7 @@ async def list_measurement_tabs(
     return result.scalars().all()
 
 
-@router.put("/measurement-config/tabs/order", status_code=status.HTTP_200_OK)
+@router.put("/measurement-config/tabs/order", status_code=status.HTTP_204_NO_CONTENT)
 async def reorder_measurement_tabs(
     data: MeasurementTabOrderUpdate,
     tenant: tuple[Company, CompanyMembership] = Depends(require_company_roles(["owner", "admin"])),
@@ -551,6 +603,17 @@ async def reorder_measurement_tabs(
 ):
     """Reorder measurement tabs (owner/admin only)."""
     company, _ = tenant
+    company_tabs = (
+        await db.execute(
+            select(MeasurementTab.id).where(
+                MeasurementTab.id.in_(data.tab_ids),
+                MeasurementTab.company_id == company.id,
+            )
+        )
+    ).scalars().all()
+    if len(set(company_tabs)) != len(data.tab_ids):
+        raise HTTPException(status_code=400, detail="Invalid tab ids for this company")
+
     for idx, tab_id in enumerate(data.tab_ids):
         await db.execute(
             update(MeasurementTab)
@@ -558,10 +621,9 @@ async def reorder_measurement_tabs(
             .values(order=idx)
         )
     await db.commit()
-    return {"status": "ok"}
 
 
-@router.put("/measurement-config/tabs/{tab_id}/fields/order", status_code=status.HTTP_200_OK)
+@router.put("/measurement-config/tabs/{tab_id}/fields/order", status_code=status.HTTP_204_NO_CONTENT)
 async def reorder_measurement_fields(
     tab_id: str,
     data: MeasurementFieldOrderUpdate,
@@ -576,6 +638,17 @@ async def reorder_measurement_fields(
     if not tab_res.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Measurement tab not found")
 
+    tab_fields = (
+        await db.execute(
+            select(MeasurementField.id).where(
+                MeasurementField.id.in_(data.field_ids),
+                MeasurementField.tab_id == tab_id,
+            )
+        )
+    ).scalars().all()
+    if len(set(tab_fields)) != len(data.field_ids):
+        raise HTTPException(status_code=400, detail="Invalid field ids for this tab")
+
     for idx, field_id in enumerate(data.field_ids):
         await db.execute(
             update(MeasurementField)
@@ -583,7 +656,6 @@ async def reorder_measurement_fields(
             .values(order=idx)
         )
     await db.commit()
-    return {"status": "ok"}
 
 
 @router.get("/measurement-config/tabs/{tab_id}", response_model=MeasurementTabOut)

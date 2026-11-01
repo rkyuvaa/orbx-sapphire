@@ -57,7 +57,8 @@ interface MeasurementTab {
 
 interface OrderMeasurement {
   id: string;
-  customer_id: string;
+  customer_id?: string;
+  order_id?: string;
   tab_id: string | null;
   field_id: string | null;
   tab_name: string;
@@ -634,8 +635,9 @@ export function CustomerOrdersPage() {
   };
 
   const saveMeasurements = async () => {
+    const isOrderContext = Boolean(selectedOrder && !customerMeasurementCustomer);
     const customer = customerMeasurementCustomer || selectedOrder?.customer || selectedCustomer;
-    if (!customer) return;
+    if (!customer && !isOrderContext) return;
     setSavingCustomerMeasurements(true);
     try {
       const payload: CustomerMeasurementInput[] = enabledTabs.flatMap((tab) =>
@@ -646,21 +648,25 @@ export function CustomerOrdersPage() {
             : detailMeasurementValues[field.id] || '',
         })),
       );
-      const saved = await apiRequest<OrderMeasurement[]>(
-        `/orders/customers/${customer.id}/measurements`,
-        { method: 'PUT', body: JSON.stringify(payload) },
-      );
-      if (customerMeasurementCustomer) {
+      if (isOrderContext && selectedOrder) {
+        const saved = await apiRequest<OrderMeasurement[]>(
+          `/orders/${selectedOrder.id}/measurements`,
+          { method: 'PUT', body: JSON.stringify(payload) },
+        );
+        setSelectedOrder((prev) => (prev ? { ...prev, measurements: saved } : null));
+        setDetailMeasurementValues(measurementMap(saved));
+        toast('Order measurements saved', 'success');
+      } else if (customer) {
+        const saved = await apiRequest<OrderMeasurement[]>(
+          `/orders/customers/${customer.id}/measurements`,
+          { method: 'PUT', body: JSON.stringify(payload) },
+        );
         setCustomerMeasurementValues(measurementMap(saved));
         await loadCustomers(customerSearch);
-      } else if (selectedOrder) {
-        const updatedOrder = await apiRequest<OrderDetails>(`/orders/${selectedOrder.id}`);
-        setSelectedOrder(updatedOrder);
-        setDetailMeasurementValues(measurementMap(updatedOrder.measurements));
+        toast('Customer default measurements saved', 'success');
       }
-      toast('Customer measurements saved', 'success');
     } catch (error) {
-      toast(error instanceof Error ? error.message : 'Failed to save customer measurements', 'error');
+      toast(error instanceof Error ? error.message : 'Failed to save measurements', 'error');
     } finally {
       setSavingCustomerMeasurements(false);
     }
@@ -1308,7 +1314,7 @@ export function CustomerOrdersPage() {
           defaultFullScreen
         >
           <p style={{ color: 'var(--t2)', marginBottom: 14 }}>
-            These are the customer's current measurements. Changes are shared with every order for this customer.
+            These are the customer's default measurements used as a starting template for new orders. Existing and past orders will not be changed.
           </p>
           {loadingCustomerMeasurements ? (
             <p style={{ color: 'var(--t2)' }}>Loading customer measurements…</p>
@@ -1398,7 +1404,7 @@ export function CustomerOrdersPage() {
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
               <button type="button" className="btn pri sm" disabled={savingCustomerMeasurements} onClick={() => void saveMeasurements()}>
-                {savingCustomerMeasurements ? 'Saving…' : 'Save customer measurements'}
+                {savingCustomerMeasurements ? 'Saving…' : 'Save order measurements'}
               </button>
             </div>
           </div>

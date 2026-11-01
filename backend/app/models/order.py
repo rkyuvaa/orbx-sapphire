@@ -57,6 +57,12 @@ class Order(Base, TimestampMixin):
         cascade="all, delete-orphan",
         order_by="OrderStatusHistory.created_at",
     )
+    measurements: Mapped[List["OrderMeasurement"]] = relationship(
+        "OrderMeasurement",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
 
 class OrderDocumentNumbering(Base, TimestampMixin):
@@ -169,3 +175,28 @@ class CustomerMeasurement(Base, TimestampMixin):
     value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     customer: Mapped["Customer"] = relationship("Customer", back_populates="measurements")
+
+
+class OrderMeasurement(Base, TimestampMixin):
+    __tablename__ = "order_measurements"
+    __table_args__ = (
+        UniqueConstraint("order_id", "field_id", name="uq_order_measurement_field"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    order_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    field_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("measurement_fields.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    tab_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("measurement_tabs.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    tab_name: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    field_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    field_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    unit: Mapped[str] = mapped_column(String(10), nullable=False)
+    value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    order: Mapped["Order"] = relationship("Order", back_populates="measurements")

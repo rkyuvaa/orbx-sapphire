@@ -171,18 +171,26 @@ class CustomerMeasurementInput(BaseModel):
     value: Optional[str] = None
 
 
-class CustomerMeasurementOut(BaseModel):
+class MeasurementRecordOut(BaseModel):
     id: str
-    customer_id: str
-    field_id: Optional[str]
-    tab_id: Optional[str]
+    field_id: Optional[str] = None
+    tab_id: Optional[str] = None
     tab_name: str
     field_name: str
     field_type: str
     unit: str
-    value: Optional[str]
+    value: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CustomerMeasurementOut(MeasurementRecordOut):
+    customer_id: Optional[str] = None
+
+
+class OrderMeasurementOut(MeasurementRecordOut):
+    order_id: Optional[str] = None
+    customer_id: Optional[str] = None
 
 
 # Order schemas
@@ -214,6 +222,7 @@ class OrderUpdate(BaseModel):
     order_date: Optional[datetime] = None
     due_date: Optional[datetime] = None
     priority: Optional[str] = Field(None, pattern=r"^(high|normal|low)$")
+    measurements: Optional[List[OrderMeasurementCreate]] = None
 
     @field_validator("order_number")
     @classmethod
@@ -259,7 +268,7 @@ class OrderOut(BaseModel):
     customer: CustomerOut
     created_by_name: Optional[str] = None
     status_history: List[OrderStatusHistoryOut] = Field(default_factory=list)
-    measurements: List[CustomerMeasurementOut] = Field(default_factory=list)
+    measurements: List[OrderMeasurementOut] = Field(default_factory=list)
     
     is_overdue: bool = False
 

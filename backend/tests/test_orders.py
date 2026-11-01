@@ -415,7 +415,7 @@ async def test_order_numbering_is_company_scoped_and_configurable(client, seed_d
 
 
 @pytest.mark.asyncio
-async def test_customer_measurements_are_shared_and_order_metadata_is_editable(
+async def test_order_measurements_are_isolated_snapshots_and_not_changed_by_customer_updates(
     client: AsyncClient, db_session, seed_data
 ):
     headers = await auth_headers(client, "owner1@company-a.com", seed_data["comp1"].id)
@@ -438,7 +438,7 @@ async def test_customer_measurements_are_shared_and_order_metadata_is_editable(
         "/api/v1/orders",
         headers=headers,
         json={
-            "customer": {"name": "Shared Measurements", "phone_number": "+919876543214"},
+            "customer": {"name": "Historical Snapshot", "phone_number": "+919876543214"},
             "order_number": "ORD-EDIT-001",
             "order_date": "2026-10-20T00:00:00Z",
             "measurements": [{"tab_id": tab.id, "field_id": field.id, "value": "92"}],
@@ -459,6 +459,7 @@ async def test_customer_measurements_are_shared_and_order_metadata_is_editable(
     assert master_measurements.status_code == 200
     assert master_measurements.json()[0]["value"] == "92"
 
+    # 1. Update measurements in Customer Master (profile template)
     updated_measurements = await client.put(
         f"/api/v1/orders/customers/{customer_id}/measurements",
         headers=headers,
@@ -466,6 +467,7 @@ async def test_customer_measurements_are_shared_and_order_metadata_is_editable(
     )
     assert updated_measurements.status_code == 200, updated_measurements.text
 
+    # 2. Verify historical order ORD-EDIT-001 still retains original "92"
     updated_order = await client.patch(
         f"/api/v1/orders/{order['id']}",
         headers=headers,
@@ -479,7 +481,41 @@ async def test_customer_measurements_are_shared_and_order_metadata_is_editable(
     assert updated_order.json()["priority"] == "high"
     assert updated_order.json()["order_number"] == "ORD-EDIT-002"
     assert updated_order.json()["order_date"].startswith("2026-10-21")
-    assert updated_order.json()["measurements"][0]["value"] == "101"
+    assert updated_order.json()["measurements"][0]["value"] == "92"
+
+    # 3. Create second order with the customer's new measurement "101"
+    second_order_resp = await client.post(
+        "/api/v1/orders",
+        headers=headers,
+        json={
+            "customer_id": customer_id,
+            "order_number": "ORD-EDIT-003",
+            "measurements": [{"tab_id": tab.id, "field_id": field.id, "value": "101"}],
+        },
+    )
+    assert second_order_resp.status_code == 201
+    second_order = second_order_resp.json()
+    assert second_order["measurements"][0]["value"] == "101"
+
+    # First order still remains 92
+    first_order_check = await client.get(f"/api/v1/orders/{order['id']}", headers=headers)
+    assert first_order_check.status_code == 200
+    assert first_order_check.json()["measurements"][0]["value"] == "92"
+
+    # 4. Edit first order specifically via PUT /orders/{order_id}/measurements
+    order_meas_update = await client.put(
+        f"/api/v1/orders/{order['id']}/measurements",
+        headers=headers,
+        json=[{"field_id": field.id, "value": "95"}],
+    )
+    assert order_meas_update.status_code == 200
+    assert order_meas_update.json()[0]["value"] == "95"
+
+    first_order_check = await client.get(f"/api/v1/orders/{order['id']}", headers=headers)
+    assert first_order_check.json()["measurements"][0]["value"] == "95"
+    # Second order still unaffected at 101
+    second_order_check = await client.get(f"/api/v1/orders/{second_order['id']}", headers=headers)
+    assert second_order_check.json()["measurements"][0]["value"] == "101"
 
 
 @pytest.mark.asyncio
