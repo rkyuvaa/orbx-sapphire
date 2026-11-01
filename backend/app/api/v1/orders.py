@@ -439,8 +439,6 @@ async def update_order_measurements(
         raise HTTPException(status_code=404, detail="Order not found")
 
     values = {item.field_id: item.value for item in data}
-    if len(values) != len(data):
-        raise HTTPException(status_code=400, detail="A measurement field may only be submitted once")
     try:
         measurements = await save_order_measurements(db, order, company.id, values)
     except ValueError as error:

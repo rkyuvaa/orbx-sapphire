@@ -10,27 +10,21 @@ async def save_order_measurements(
     company_id: str,
     values: dict[str, str | None],
 ) -> list[OrderMeasurement]:
-    if len(values) != len(set(values)):
-        raise ValueError("A measurement field may only be submitted once")
-
     configured_rows = (
         await db.execute(
             select(MeasurementField, MeasurementTab)
             .join(MeasurementTab, MeasurementField.tab_id == MeasurementTab.id)
             .where(
                 MeasurementTab.company_id == company_id,
-                MeasurementTab.enabled.is_(True),
-                MeasurementField.enabled.is_(True),
             )
         )
     ).all()
     configured_fields = {field.id: (field, tab) for field, tab in configured_rows}
 
-    if any(field_id not in configured_fields for field_id in values):
-        raise ValueError("Measurement field is not valid for this company")
+    valid_values = {field_id: val for field_id, val in values.items() if field_id in configured_fields}
 
-    for field, _ in configured_fields.values():
-        if field.required and not (values.get(field.id) or "").strip():
+    for field, tab in configured_fields.values():
+        if field.enabled and tab.enabled and field.required and not (valid_values.get(field.id) or "").strip():
             raise ValueError(f"{field.name} is required")
 
     stored = (
@@ -43,7 +37,7 @@ async def save_order_measurements(
     ).scalars().all()
     stored_by_field = {item.field_id: item for item in stored}
 
-    for field_id, value in values.items():
+    for field_id, value in valid_values.items():
         field, tab = configured_fields[field_id]
         measurement = stored_by_field.get(field_id)
         if measurement is None:
@@ -82,27 +76,21 @@ async def save_customer_measurements(
     company_id: str,
     values: dict[str, str | None],
 ) -> list[CustomerMeasurement]:
-    if len(values) != len(set(values)):
-        raise ValueError("A measurement field may only be submitted once")
-
     configured_rows = (
         await db.execute(
             select(MeasurementField, MeasurementTab)
             .join(MeasurementTab, MeasurementField.tab_id == MeasurementTab.id)
             .where(
                 MeasurementTab.company_id == company_id,
-                MeasurementTab.enabled.is_(True),
-                MeasurementField.enabled.is_(True),
             )
         )
     ).all()
     configured_fields = {field.id: (field, tab) for field, tab in configured_rows}
 
-    if any(field_id not in configured_fields for field_id in values):
-        raise ValueError("Measurement field is not valid for this company")
+    valid_values = {field_id: val for field_id, val in values.items() if field_id in configured_fields}
 
-    for field, _ in configured_fields.values():
-        if field.required and not (values.get(field.id) or "").strip():
+    for field, tab in configured_fields.values():
+        if field.enabled and tab.enabled and field.required and not (valid_values.get(field.id) or "").strip():
             raise ValueError(f"{field.name} is required")
 
     stored = (
@@ -115,7 +103,7 @@ async def save_customer_measurements(
     ).scalars().all()
     stored_by_field = {item.field_id: item for item in stored}
 
-    for field_id, value in values.items():
+    for field_id, value in valid_values.items():
         field, tab = configured_fields[field_id]
         measurement = stored_by_field.get(field_id)
         if measurement is None:

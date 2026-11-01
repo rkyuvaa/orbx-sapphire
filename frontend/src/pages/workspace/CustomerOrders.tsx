@@ -277,6 +277,7 @@ export function CustomerOrdersPage() {
   const openedOrderQueryId = useRef<string | null>(null);
   const [loadingCustomerMeasurements, setLoadingCustomerMeasurements] = useState(false);
   const [savingCustomerMeasurements, setSavingCustomerMeasurements] = useState(false);
+  const [savingOrder, setSavingOrder] = useState(false);
   const [saving, setSaving] = useState(false);
   const [customerForm, setCustomerForm] = useState({ name: '', phone_number: '', address: '' });
   const [customerEdit, setCustomerEdit] = useState<Customer | null>(null);
@@ -346,37 +347,32 @@ export function CustomerOrdersPage() {
     }
   }, [activeCompanyId, dueFrom, dueTo, overdueOnly, search, statusFilter, toast]);
 
-  const [customerSearchTimeout, setCustomerSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  const customerSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadCustomers = useCallback(async (query = '') => {
     const requestId = ++customerListRequestId.current;
-    if (customerSearchTimeout) {
-      clearTimeout(customerSearchTimeout);
+    if (!activeCompanyId) {
+      setCustomers([]);
+      setLoadingCustomers(false);
+      setHasLoadedCustomers(true);
+      return;
     }
-    setCustomerSearchTimeout(setTimeout(async () => {
-      if (!activeCompanyId) {
-        setCustomers([]);
+    setLoadingCustomers(true);
+    try {
+      const params = new URLSearchParams();
+      if (query.trim().length >= 3) params.set('search', query.trim());
+      const results = await apiRequest<Customer[]>(`/orders/customers${params.size ? `?${params}` : ''}`);
+      if (requestId === customerListRequestId.current) setCustomers(results);
+    } catch (error) {
+      if (requestId === customerListRequestId.current) {
+        toast(error instanceof Error ? error.message : 'Failed to load customers', 'error');
+      }
+    } finally {
+      if (requestId === customerListRequestId.current) {
         setLoadingCustomers(false);
         setHasLoadedCustomers(true);
-        return;
       }
-      setLoadingCustomers(true);
-      try {
-        const params = new URLSearchParams();
-        if (query.trim().length >= 3) params.set('search', query.trim());
-        const results = await apiRequest<Customer[]>(`/orders/customers${params.size ? `?${params}` : ''}`);
-        if (requestId === customerListRequestId.current) setCustomers(results);
-      } catch (error) {
-        if (requestId === customerListRequestId.current) {
-          toast(error instanceof Error ? error.message : 'Failed to load customers', 'error');
-        }
-      } finally {
-        if (requestId === customerListRequestId.current) {
-          setLoadingCustomers(false);
-          setHasLoadedCustomers(true);
-        }
-      }
-    }, 300));
+    }
   }, [activeCompanyId, toast]);
 
   const searchOrderCustomers = useCallback(async (query: string) => {
@@ -576,33 +572,27 @@ export function CustomerOrdersPage() {
     setCustomerFormSaving(true);
     try {
       if (customerEdit) {
-        await apiRequest(`/orders/customers/${customerEdit.id}`, {
+        const updated = await apiRequest<Customer>(`/orders/customers/${customerEdit.id}`, {
           method: 'PATCH',
           body: JSON.stringify(customerForm),
         });
+        setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+        if (selectedOrder && selectedOrder.customer_id === updated.id) {
+          setSelectedOrder((prev) => (prev ? { ...prev, customer: updated } : null));
+        }
         toast('Customer updated', 'success');
       } else {
-        await apiRequest('/orders/customers', {
+        const created = await apiRequest<Customer>('/orders/customers', {
           method: 'POST',
           body: JSON.stringify(customerForm),
         });
+        setCustomers((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
         toast('Customer added to this company', 'success');
       }
       setCustomerDialogOpen(false);
       setCustomerEdit(null);
       setCustomerForm({ name: '', phone_number: '', address: '' });
-      if (selectedOrder && customerEdit && selectedOrder.customer_id === customerEdit.id) {
-        setSelectedOrder((prev) => prev ? {
-          ...prev,
-          customer: {
-            ...prev.customer,
-            name: customerForm.name,
-            phone_number: customerForm.phone_number,
-            address: customerForm.address,
-          },
-        } : null);
-      }
-      await Promise.all([loadCustomers(customerSearch), loadOrders()]);
+      await loadOrders();
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Failed to save customer', 'error');
     } finally {
@@ -674,57 +664,72 @@ export function CustomerOrdersPage() {
     }
   };
 
-  const updateOrderDueDate = async () => {
+  const saveOrder = async () => {
     if (!selectedOrder) return;
+    setSavingOrder(true);
     try {
+      const measurementPayload: OrderMeasurementInput[] = [];
+      const seenFieldIds = new Set<string>();
+      for (const tab of enabledTabs) {
+        for (const field of tab.fields) {
+          if (!seenFieldIds.has(field.id)) {
+            seenFieldIds.add(field.id);
+            measurementPayload.push({
+              tab_id: tab.id,
+              field_id: field.id,
+              value: detailMeasurementValues[field.id] ?? '',
+            });
+          }
+        }
+      }
+
+      const orderDateIso = orderDate ? new Date(`${orderDate}T00:00:00`).toISOString() : undefined;
+      const dueDateIso = dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null;
+
       const updated = await apiRequest<OrderDetails>(`/orders/${selectedOrder.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          order_number: orderNumber.trim(),
-          order_date: new Date(`${orderDate}T00:00:00`).toISOString(),
-          due_date: dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null,
+          order_number: orderNumber.trim() || undefined,
+          order_date: orderDateIso,
+          due_date: dueDateIso,
           priority,
+          measurements: measurementPayload,
         }),
       });
       setSelectedOrder(updated);
+      setDetailMeasurementValues(measurementMap(updated.measurements));
       await loadOrders();
-      toast('Order details saved', 'success');
+      toast('Order updated successfully', 'success');
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Failed to update order', 'error');
+    } finally {
+      setSavingOrder(false);
     }
   };
 
-  const saveMeasurements = async () => {
-    const isOrderContext = Boolean(selectedOrder && !customerMeasurementCustomer);
-    const customer = customerMeasurementCustomer || selectedOrder?.customer || selectedCustomer;
-    if (!customer && !isOrderContext) return;
+  const saveCustomerDefaultMeasurements = async () => {
+    if (!customerMeasurementCustomer) return;
     setSavingCustomerMeasurements(true);
     try {
-      const payload: CustomerMeasurementInput[] = enabledTabs.flatMap((tab) =>
-        tab.fields.map((field) => ({
-          field_id: field.id,
-          value: customerMeasurementCustomer
-            ? customerMeasurementValues[field.id] || ''
-            : detailMeasurementValues[field.id] || '',
-        })),
-      );
-      if (isOrderContext && selectedOrder) {
-        const saved = await apiRequest<OrderMeasurement[]>(
-          `/orders/${selectedOrder.id}/measurements`,
-          { method: 'PUT', body: JSON.stringify(payload) },
-        );
-        setSelectedOrder((prev) => (prev ? { ...prev, measurements: saved } : null));
-        setDetailMeasurementValues(measurementMap(saved));
-        toast('Order measurements saved', 'success');
-      } else if (customer) {
-        const saved = await apiRequest<OrderMeasurement[]>(
-          `/orders/customers/${customer.id}/measurements`,
-          { method: 'PUT', body: JSON.stringify(payload) },
-        );
-        setCustomerMeasurementValues(measurementMap(saved));
-        await loadCustomers(customerSearch);
-        toast('Customer default measurements saved', 'success');
+      const payload: CustomerMeasurementInput[] = [];
+      const seen = new Set<string>();
+      for (const tab of enabledTabs) {
+        for (const field of tab.fields) {
+          if (!seen.has(field.id)) {
+            seen.add(field.id);
+            payload.push({
+              field_id: field.id,
+              value: customerMeasurementValues[field.id] ?? '',
+            });
+          }
+        }
       }
+      const saved = await apiRequest<OrderMeasurement[]>(
+        `/orders/customers/${customerMeasurementCustomer.id}/measurements`,
+        { method: 'PUT', body: JSON.stringify(payload) },
+      );
+      setCustomerMeasurementValues(measurementMap(saved));
+      toast('Customer default measurements saved', 'success');
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Failed to save measurements', 'error');
     } finally {
@@ -1093,19 +1098,28 @@ export function CustomerOrdersPage() {
             <div className="fld" style={{ margin: 0, maxWidth: 420 }}>
               <label htmlFor="customer-search">Find by customer name or phone number</label>
               <input
-      id="customer-search"
-      value={customerSearch}
-      onChange={(event) => {
-        const value = event.target.value;
-        setCustomerSearch(value);
-        if (value.length >= 3) {
-          loadCustomers(value);
-        } else if (value.length > 0) {
-          setCustomers([]);
-        }
-      }}
-      placeholder="Type at least 3 characters to search"
-    />
+                id="customer-search"
+                value={customerSearch}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setCustomerSearch(value);
+                  if (customerSearchTimeoutRef.current) {
+                    clearTimeout(customerSearchTimeoutRef.current);
+                  }
+                  if (value.trim().length >= 3) {
+                    customerSearchTimeoutRef.current = setTimeout(() => {
+                      void loadCustomers(value);
+                    }, 300);
+                  } else if (value.trim().length > 0) {
+                    setCustomers([]);
+                  } else {
+                    customerSearchTimeoutRef.current = setTimeout(() => {
+                      void loadCustomers('');
+                    }, 300);
+                  }
+                }}
+                placeholder="Type at least 3 characters to search"
+              />
             </div>
           </div>
           <div className="card" style={{ overflow: 'hidden' }} aria-busy={loadingCustomers}>
@@ -1476,7 +1490,7 @@ export function CustomerOrdersPage() {
           )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
             <button type="button" className="btn" onClick={() => setCustomerMeasurementCustomer(null)}>Close</button>
-            <button type="button" className="btn pri" disabled={savingCustomerMeasurements || loadingCustomerMeasurements} onClick={() => void saveMeasurements()}>
+            <button type="button" className="btn pri" disabled={savingCustomerMeasurements || loadingCustomerMeasurements} onClick={() => void saveCustomerDefaultMeasurements()}>
               {savingCustomerMeasurements ? 'Saving…' : 'Save measurements'}
             </button>
           </div>
@@ -1599,7 +1613,15 @@ export function CustomerOrdersPage() {
               </select>
             </div>
             <div>
-              <button type="button" className="btn sm" style={{ height: '42px', width: '100%' }} onClick={() => void updateOrderDueDate()}>Save order details</button>
+              <button
+                type="button"
+                className="btn sm pri"
+                style={{ height: '42px', width: '100%' }}
+                disabled={savingOrder}
+                onClick={() => void saveOrder()}
+              >
+                {savingOrder ? 'Saving…' : 'Save order details'}
+              </button>
             </div>
           </div>
 
@@ -1614,8 +1636,13 @@ export function CustomerOrdersPage() {
               idPrefix="order-detail-measurement"
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-              <button type="button" className="btn pri sm" disabled={savingCustomerMeasurements} onClick={() => void saveMeasurements()}>
-                {savingCustomerMeasurements ? 'Saving…' : 'Save order measurements'}
+              <button
+                type="button"
+                className="btn pri sm"
+                disabled={savingOrder}
+                onClick={() => void saveOrder()}
+              >
+                {savingOrder ? 'Saving…' : 'Save order measurements'}
               </button>
             </div>
           </div>
