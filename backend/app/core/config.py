@@ -1,6 +1,6 @@
-from typing import List, Optional
+from typing import List, Optional, Any, Union
 from pydantic_settings import BaseSettings
-from pydantic import AnyHttpUrl, computed_field
+from pydantic import AnyHttpUrl, computed_field, field_validator
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "OrbX"
@@ -31,9 +31,20 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://nexus.orbx.in:8050",
+        "https://nexus.orbx.in:8050",
+        "http://nexus.orbx.in",
+        "https://nexus.orbx.in",
         "https://sapphire.orbx.in",
         "https://app.orbx.in"
     ]
+
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Any) -> Any:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",") if i.strip()]
+        return v
 
     # Super Admin Seed
     FIRST_SUPERADMIN_EMAIL: str = "admin@orbx.in"

@@ -3,7 +3,7 @@ from typing import Optional, List
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, or_, func, asc, desc
+from sqlalchemy import select, update, delete, or_, func, asc, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,7 +26,7 @@ from app.schemas.order import (
     OrderCreate, OrderUpdate, OrderStatusUpdate, OrderOut, OrderListOut,
     CustomerOut, CustomerMeasurementOut, OrderStatusHistoryOut,
     OrderStatus as OrderStatusSchema, ORDER_STATUS_SEQUENCE,
-    MeasurementTabCreate, MeasurementTabUpdate, MeasurementTabOut,
+    MeasurementTabCreate, MeasurementTabUpdate, MeasurementTabOut, MeasurementTabOrderUpdate,
     MeasurementFieldCreate, MeasurementFieldUpdate, MeasurementFieldOut,
     MeasurementFieldOrderUpdate
 )
@@ -490,17 +490,40 @@ async def create_measurement_tab(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Measurement tab with this name already exists")
 
+    max_order_result = await db.execute(
+        select(func.max(MeasurementTab.order)).where(MeasurementTab.company_id == company.id)
+    )
+    max_order = max_order_result.scalar() or 0
+
     tab = MeasurementTab(
         company_id=company.id,
         name=data.name,
-        description=data.description,
+        order=max_order + 1,
         enabled=data.enabled if data.enabled is not None else True
     )
     db.add(tab)
-    await db.commit()
-    await db.refresh(tab)
+    await db.flush()
 
-    return tab
+    if data.fields:
+        for idx, f_data in enumerate(data.fields):
+            field = MeasurementField(
+                tab_id=tab.id,
+                name=f_data.name,
+                field_type=f_data.field_type,
+                unit=f_data.unit,
+                required=f_data.required,
+                order=idx
+            )
+            db.add(field)
+
+    await db.commit()
+
+    result = await db.execute(
+        select(MeasurementTab)
+        .where(MeasurementTab.id == tab.id)
+        .options(selectinload(MeasurementTab.fields))
+    )
+    return result.scalar_one()
 
 
 @router.get("/measurement-config/tabs", response_model=List[MeasurementTabOut])
@@ -512,9 +535,55 @@ async def list_measurement_tabs(
     company, _ = tenant
 
     result = await db.execute(
-        select(MeasurementTab).where(MeasurementTab.company_id == company.id).order_by(MeasurementTab.name)
+        select(MeasurementTab)
+        .where(MeasurementTab.company_id == company.id)
+        .options(selectinload(MeasurementTab.fields))
+        .order_by(MeasurementTab.order, MeasurementTab.name)
     )
     return result.scalars().all()
+
+
+@router.put("/measurement-config/tabs/order", status_code=status.HTTP_200_OK)
+async def reorder_measurement_tabs(
+    data: MeasurementTabOrderUpdate,
+    tenant: tuple[Company, CompanyMembership] = Depends(require_company_roles(["owner", "admin"])),
+    db: AsyncSession = Depends(get_db)
+):
+    """Reorder measurement tabs (owner/admin only)."""
+    company, _ = tenant
+    for idx, tab_id in enumerate(data.tab_ids):
+        await db.execute(
+            update(MeasurementTab)
+            .where(MeasurementTab.id == tab_id, MeasurementTab.company_id == company.id)
+            .values(order=idx)
+        )
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.put("/measurement-config/tabs/{tab_id}/fields/order", status_code=status.HTTP_200_OK)
+async def reorder_measurement_fields(
+    tab_id: str,
+    data: MeasurementFieldOrderUpdate,
+    tenant: tuple[Company, CompanyMembership] = Depends(require_company_roles(["owner", "admin"])),
+    db: AsyncSession = Depends(get_db)
+):
+    """Reorder fields within a tab (owner/admin only)."""
+    company, _ = tenant
+    tab_res = await db.execute(
+        select(MeasurementTab).where(MeasurementTab.id == tab_id, MeasurementTab.company_id == company.id)
+    )
+    if not tab_res.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Measurement tab not found")
+
+    for idx, field_id in enumerate(data.field_ids):
+        await db.execute(
+            update(MeasurementField)
+            .where(MeasurementField.id == field_id, MeasurementField.tab_id == tab_id)
+            .values(order=idx)
+        )
+    await db.commit()
+    return {"status": "ok"}
 
 
 @router.get("/measurement-config/tabs/{tab_id}", response_model=MeasurementTabOut)
@@ -527,7 +596,9 @@ async def get_measurement_tab(
     company, _ = tenant
 
     result = await db.execute(
-        select(MeasurementTab).where(MeasurementTab.id == tab_id, MeasurementTab.company_id == company.id)
+        select(MeasurementTab)
+        .where(MeasurementTab.id == tab_id, MeasurementTab.company_id == company.id)
+        .options(selectinload(MeasurementTab.fields))
     )
     tab = result.scalar_one_or_none()
 
@@ -548,7 +619,9 @@ async def update_measurement_tab(
     company, _ = tenant
 
     result = await db.execute(
-        select(MeasurementTab).where(MeasurementTab.id == tab_id, MeasurementTab.company_id == company.id)
+        select(MeasurementTab)
+        .where(MeasurementTab.id == tab_id, MeasurementTab.company_id == company.id)
+        .options(selectinload(MeasurementTab.fields))
     )
     tab = result.scalar_one_or_none()
 
@@ -556,7 +629,6 @@ async def update_measurement_tab(
         raise HTTPException(status_code=404, detail="Measurement tab not found")
 
     if data.name is not None:
-        # Check for duplicate name
         existing = await db.execute(
             select(MeasurementTab).where(
                 MeasurementTab.company_id == company.id,
@@ -566,18 +638,37 @@ async def update_measurement_tab(
         )
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Measurement tab with this name already exists")
-
-    if data.name is not None:
         tab.name = data.name
-    if data.description is not None:
-        tab.description = data.description
+
     if data.enabled is not None:
         tab.enabled = data.enabled
+    if data.order is not None:
+        tab.order = data.order
 
     await db.commit()
     await db.refresh(tab)
 
     return tab
+
+
+@router.delete("/measurement-config/tabs/{tab_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_measurement_tab(
+    tab_id: str,
+    tenant: tuple[Company, CompanyMembership] = Depends(require_company_roles(["owner", "admin"])),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete measurement tab (owner/admin only)."""
+    company, _ = tenant
+
+    result = await db.execute(
+        select(MeasurementTab).where(MeasurementTab.id == tab_id, MeasurementTab.company_id == company.id)
+    )
+    tab = result.scalar_one_or_none()
+    if not tab:
+        raise HTTPException(status_code=404, detail="Measurement tab not found")
+
+    await db.delete(tab)
+    await db.commit()
 
 
 @router.post("/measurement-config/tabs/{tab_id}/fields", response_model=MeasurementFieldOut, status_code=status.HTTP_201_CREATED)
@@ -590,14 +681,12 @@ async def create_measurement_field(
     """Create a new measurement field (owner/admin only)."""
     company, _ = tenant
 
-    # Verify tab exists and belongs to company
     tab_result = await db.execute(
         select(MeasurementTab).where(MeasurementTab.id == tab_id, MeasurementTab.company_id == company.id)
     )
     if not tab_result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Tab not found")
+        raise HTTPException(status_code=404, detail="Measurement tab not found")
 
-    # Get max order
     max_order_result = await db.execute(
         select(func.max(MeasurementField.order)).where(MeasurementField.tab_id == tab_id)
     )
@@ -629,7 +718,9 @@ async def update_measurement_field(
     company, _ = tenant
 
     result = await db.execute(
-        select(MeasurementField).where(MeasurementField.id == field_id, MeasurementField.tab_id == tab_id)
+        select(MeasurementField)
+        .join(MeasurementTab, MeasurementField.tab_id == MeasurementTab.id)
+        .where(MeasurementField.id == field_id, MeasurementTab.company_id == company.id)
     )
     field = result.scalar_one_or_none()
 
@@ -644,6 +735,8 @@ async def update_measurement_field(
         field.unit = data.unit
     if data.required is not None:
         field.required = data.required
+    if data.enabled is not None:
+        field.enabled = data.enabled
 
     await db.commit()
     await db.refresh(field)

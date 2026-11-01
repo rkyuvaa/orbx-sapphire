@@ -126,6 +126,7 @@ class MeasurementTab(Base, TimestampMixin):
         back_populates="tab",
         cascade="all, delete-orphan",
         order_by="MeasurementField.order",
+        lazy="selectin",
     )
 
 
