@@ -55,14 +55,6 @@ async def _get_order_out(db: AsyncSession, company_id: str, order_id: str) -> Or
             .order_by(OrderMeasurement.tab_name, OrderMeasurement.field_name)
         )
     ).scalars().all()
-    if not measurements:
-        measurements = (
-            await db.execute(
-                select(CustomerMeasurement)
-                .where(CustomerMeasurement.customer_id == order.customer_id)
-                .order_by(CustomerMeasurement.tab_name, CustomerMeasurement.field_name)
-            )
-        ).scalars().all()
     return OrderOut(
         id=order.id,
         company_id=order.company_id,

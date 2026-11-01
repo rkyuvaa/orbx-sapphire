@@ -757,3 +757,74 @@ async def test_measurement_configuration_is_company_scoped(client: AsyncClient, 
     assert [tab["id"] for tab in beta_config_after_attempts.json()] == [
         beta_tab["id"]
     ]
+
+
+@pytest.mark.asyncio
+async def test_order_measurements_exact_scenario_order1_22_order2_33(
+    client: AsyncClient, db_session, seed_data
+):
+    headers = await auth_headers(client, "owner1@company-a.com", seed_data["comp1"].id)
+    tab = MeasurementTab(company_id=seed_data["comp1"].id, name="Blouse", enabled=True)
+    db_session.add(tab)
+    await db_session.flush()
+    field = MeasurementField(
+        tab_id=tab.id,
+        name="Chest",
+        field_type="number",
+        unit="in",
+        required=False,
+        enabled=True,
+        order=0,
+    )
+    db_session.add(field)
+    await db_session.commit()
+
+    # Step 1: Customer order number 1 measurement is 22 entered and saved (in customer master also)
+    order1_resp = await client.post(
+        "/api/v1/orders",
+        headers=headers,
+        json={
+            "customer": {"name": "Exact Flow Customer", "phone_number": "+919988776655"},
+            "order_number": "ORD-001",
+            "measurements": [{"tab_id": tab.id, "field_id": field.id, "value": "22"}],
+        },
+    )
+    assert order1_resp.status_code == 201, order1_resp.text
+    order1 = order1_resp.json()
+    customer_id = order1["customer_id"]
+    assert order1["measurements"][0]["value"] == "22"
+
+    # Verify customer master also has 22
+    master_resp_1 = await client.get(
+        f"/api/v1/orders/customers/{customer_id}/measurements",
+        headers=headers,
+    )
+    assert master_resp_1.status_code == 200
+    assert master_resp_1.json()[0]["value"] == "22"
+
+    # Step 2: Same customer order number 2 measurement is 33 (it should update in customer master)
+    order2_resp = await client.post(
+        "/api/v1/orders",
+        headers=headers,
+        json={
+            "customer_id": customer_id,
+            "order_number": "ORD-002",
+            "measurements": [{"tab_id": tab.id, "field_id": field.id, "value": "33"}],
+        },
+    )
+    assert order2_resp.status_code == 201, order2_resp.text
+    order2 = order2_resp.json()
+    assert order2["measurements"][0]["value"] == "33"
+
+    # Verify customer master that customer measurement is 33
+    master_resp_2 = await client.get(
+        f"/api/v1/orders/customers/{customer_id}/measurements",
+        headers=headers,
+    )
+    assert master_resp_2.status_code == 200
+    assert master_resp_2.json()[0]["value"] == "33"
+
+    # Step 3: Order number 1 should NOT change 22 to 33 because it's already created
+    order1_check = await client.get(f"/api/v1/orders/{order1['id']}", headers=headers)
+    assert order1_check.status_code == 200
+    assert order1_check.json()["measurements"][0]["value"] == "22"
