@@ -85,7 +85,7 @@ class ReminderSettingsUpdate(BaseModel):
     def validate_recurring_interval(cls, value: Optional[str]) -> Optional[str]:
         if value is None or value in {"daily", "weekly"}:
             return value
-        match = re.fullmatch(r"every_(\d+)_days", value)
+        match = re.fullmatch(r"every_(\d+)_days?", value)
         if match is None or not 1 <= int(match.group(1)) <= 365:
             raise ValueError("Recurrence must be daily, weekly, or every 1 to 365 days")
         return value
