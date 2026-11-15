@@ -272,8 +272,15 @@ async def _dispatch_due_order_reminders(db, now: datetime) -> int:
 @celery_app.task(name="notifications.dispatch_order_reminders")
 def dispatch_order_reminders() -> int:
     """Dispatch due reminders on the minute configured by each company."""
+    # Use existing event loop instead of asyncio.run() to avoid loop conflicts with solo pool
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     async def run() -> int:
         async with AsyncSessionLocal() as db:
             return await _dispatch_due_order_reminders(db, datetime.now(timezone.utc))
 
-    return asyncio.run(run())
+    return loop.run_until_complete(run())
