@@ -62,7 +62,7 @@ services:
       dockerfile: Dockerfile
     container_name: orbx-celery-worker
     restart: unless-stopped
-    command: celery -A app.tasks.celery_app.celery_app worker --loglevel=info
+    command: celery -A app.tasks.celery_app.celery_app worker --loglevel=info --pool=solo
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_secure_2026}@db:5432/${POSTGRES_DB:-orbx}
       - REDIS_URL=redis://redis:6379/0
@@ -103,7 +103,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_VAPID_PUBLIC_KEY: ${VITE_VAPID_PUBLIC_KEY:-}
+        VITE_VAPID_PUBLIC_KEY: BHmeo9BYlsNaPmImEZoKNgwr0v1gsml95MHOzBqSkrLK5T25awTSI8HxpsOmLhp0gsp4qK94egOTHLCvb4fJGGs
     container_name: orbx-frontend
     restart: unless-stopped
     networks:
