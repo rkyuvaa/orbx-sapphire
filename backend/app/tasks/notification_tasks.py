@@ -272,15 +272,39 @@ async def _dispatch_due_order_reminders(db, now: datetime) -> int:
 @celery_app.task(name="notifications.dispatch_order_reminders")
 def dispatch_order_reminders() -> int:
     """Dispatch due reminders on the minute configured by each company."""
-    # Use existing event loop instead of asyncio.run() to avoid loop conflicts with solo pool
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    # Create a fresh event loop and engine for this task to avoid loop conflicts
+    # with solo pool where connections might be tied to different loops
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-    async def run() -> int:
+    try:
+        return loop.run_until_complete(_dispatch_due_order_reminders_task())
+    finally:
+        loop.close()
+
+
+async def _dispatch_due_order_reminders_task() -> int:
+    """Async inner function with fresh engine/session."""
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    from app.core.config import settings
+
+    # Create fresh engine and session for this task
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=False,
+        future=True,
+        pool_pre_ping=True,
+    )
+    AsyncSessionLocal = async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+
+    try:
         async with AsyncSessionLocal() as db:
             return await _dispatch_due_order_reminders(db, datetime.now(timezone.utc))
-
-    return loop.run_until_complete(run())
+    finally:
+        await engine.dispose()
