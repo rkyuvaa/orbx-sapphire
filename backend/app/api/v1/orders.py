@@ -414,6 +414,12 @@ async def update_order(
         measurement_dict = {m.field_id: m.value for m in data.measurements}
         try:
             await save_order_measurements(db, order, company.id, measurement_dict)
+            if order.customer_id:
+                from app.models.order import Customer
+                customer_result = await db.execute(select(Customer).where(Customer.id == order.customer_id, Customer.company_id == company.id))
+                customer = customer_result.scalar_one_or_none()
+                if customer:
+                    await save_customer_measurements(db, customer, company.id, measurement_dict)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
     await db.commit()
@@ -454,6 +460,12 @@ async def update_order_measurements(
     values = {item.field_id: item.value for item in data}
     try:
         measurements = await save_order_measurements(db, order, company.id, values)
+        if order.customer_id:
+            from app.models.order import Customer
+            customer_result = await db.execute(select(Customer).where(Customer.id == order.customer_id, Customer.company_id == company.id))
+            customer = customer_result.scalar_one_or_none()
+            if customer:
+                await save_customer_measurements(db, customer, company.id, values)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     await db.commit()

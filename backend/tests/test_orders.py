@@ -517,6 +517,24 @@ async def test_order_measurements_are_isolated_snapshots_and_not_changed_by_cust
     second_order_check = await client.get(f"/api/v1/orders/{second_order['id']}", headers=headers)
     assert second_order_check.json()["measurements"][0]["value"] == "101"
 
+    # Verify customer master was updated to latest order measurement (95) via PUT /orders/{id}/measurements
+    master_check = await client.get(f"/api/v1/orders/customers/{customer_id}/measurements", headers=headers)
+    assert master_check.status_code == 200
+    assert master_check.json()[0]["value"] == "95"
+
+    # Now test PATCH /orders/{id} with measurements also updates customer master
+    order_patch_update = await client.patch(
+        f"/api/v1/orders/{order['id']}",
+        headers=headers,
+        json={"measurements": [{"tab_id": tab.id, "field_id": field.id, "value": "88"}]},
+    )
+    assert order_patch_update.status_code == 200
+    assert order_patch_update.json()["measurements"][0]["value"] == "88"
+
+    master_check2 = await client.get(f"/api/v1/orders/customers/{customer_id}/measurements", headers=headers)
+    assert master_check2.status_code == 200
+    assert master_check2.json()[0]["value"] == "88"
+
 
 @pytest.mark.asyncio
 async def test_order_status_requires_sequential_progress_and_cancel_reason(
