@@ -516,6 +516,8 @@ html[data-theme='light'] .measurement-config-field {
   border-radius: 6px; /* Badges / Chips: 6px */
   line-height: 1.2;
 }
+
+/* Generic badge variants (existing) */
 .badge.active, .badge.owner, .badge.starter, .badge.paid {
   color: var(--color-success-text);
   background: var(--color-success-bg);
@@ -532,6 +534,48 @@ html[data-theme='light'] .measurement-config-field {
   color: var(--color-accent-contrast);
   background: var(--color-accent);
   font-weight: 700;
+}
+
+/* Order-specific status badges - each status gets a distinct color */
+.badge.status-order_received {
+  color: #e3f2fd;
+  background: #1565c0;
+}
+.badge.status-material_marking {
+  color: #e8eaf6;
+  background: #3f51b5;
+}
+.badge.status-design_work {
+  color: #f3e5f5;
+  background: #7b1fa2;
+}
+.badge.status-cutting {
+  color: #fff3e0;
+  background: #e65100;
+}
+.badge.status-stitching {
+  color: #e8f5e9;
+  background: #2e7d32;
+}
+.badge.status-finishing {
+  color: #e0f2f1;
+  background: #00695c;
+}
+.badge.status-trial {
+  color: #fce4ec;
+  background: #c2185b;
+}
+.badge.status-ready_for_delivery {
+  color: #e0f7fa;
+  background: #00838f;
+}
+.badge.status-delivered {
+  color: #e8f5e9;
+  background: #2e7d32;
+}
+.badge.status-cancelled {
+  color: #ffebee;
+  background: #c62828;
 }
 
 .due-board-section {

@@ -272,6 +272,10 @@ export function CustomerOrdersPage() {
   const [customerMeasurementCustomer, setCustomerMeasurementCustomer] = useState<Customer | null>(null);
   const [customerMeasurementValues, setCustomerMeasurementValues] = useState<Record<string, string>>({});
   const [customerMeasurementTabId, setCustomerMeasurementTabId] = useState('');
+  const [customerMeasurementViewTab, setCustomerMeasurementViewTab] = useState<'measurements' | 'orders'>('measurements');
+  const [customerOrders, setCustomerOrders] = useState<OrderSummary[]>([]);
+  const [loadingCustomerOrders, setLoadingCustomerOrders] = useState(false);
+  const [hasLoadedCustomerOrders, setHasLoadedCustomerOrders] = useState(false);
   const [detailMeasurementValues, setDetailMeasurementValues] = useState<Record<string, string>>({});
   const [detailMeasurementTabId, setDetailMeasurementTabId] = useState('');
   const openedOrderQueryId = useRef<string | null>(null);
@@ -512,8 +516,23 @@ export function CustomerOrdersPage() {
     }
   };
 
+  const loadCustomerOrders = async (customerId: string) => {
+    setLoadingCustomerOrders(true);
+    setHasLoadedCustomerOrders(false);
+    try {
+      const orders = await apiRequest<OrderSummary[]>(`/orders?customer_id=${customerId}`);
+      setCustomerOrders(orders);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Failed to load customer orders', 'error');
+    } finally {
+      setLoadingCustomerOrders(false);
+      setHasLoadedCustomerOrders(true);
+    }
+  };
+
   const openCustomerMeasurements = async (customer: Customer) => {
     setCustomerMeasurementCustomer(customer);
+    setCustomerMeasurementViewTab('measurements');
     setCustomerMeasurementTabId('');
     try {
       const values = await loadCustomerMeasurementValues(customer.id);
@@ -521,6 +540,12 @@ export function CustomerOrdersPage() {
     } catch {
       setCustomerMeasurementCustomer(null);
     }
+  };
+
+  const openCustomerHistory = async (customer: Customer) => {
+    setCustomerMeasurementCustomer(customer);
+    setCustomerMeasurementViewTab('orders');
+    await loadCustomerOrders(customer.id);
   };
 
   const createOrder = async (event: React.FormEvent) => {
@@ -741,8 +766,7 @@ export function CustomerOrdersPage() {
     if (!selectedOrder) return;
     let reason: string | undefined;
     if (nextStatus === 'cancelled') {
-      reason = window.prompt('Enter a reason for cancelling this order:')?.trim();
-      if (!reason) return;
+      reason = window.prompt('Enter a reason for cancelling this order (optional):')?.trim() || undefined;
     }
     try {
       const updated = await apiRequest<OrderDetails>(`/orders/${selectedOrder.id}/status`, {
@@ -893,6 +917,9 @@ export function CustomerOrdersPage() {
   const nextStatus = currentStatusIndex >= 0 && currentStatusIndex < STATUSES.length - 2
     ? STATUSES[currentStatusIndex + 1]
     : null;
+  const prevStatus = currentStatusIndex > 0 && currentStatusIndex < STATUSES.length - 1
+    ? STATUSES[currentStatusIndex - 1]
+    : null;
 
   const renderHeader = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -988,7 +1015,7 @@ export function CustomerOrdersPage() {
                         <b>{order.customer_name}</b><small style={{ display: 'block', color: 'var(--t2)' }}>{order.customer_phone}</small>
                       </td>
                       <td style={{ padding: '14px 16px' }}>
-                        <span className={`badge ${order.status === 'cancelled' ? 'danger' : order.status === 'delivered' ? 'active' : 'pending'}`}>{labelForStatus(order.status)}</span>
+                        <span className={`badge status-${order.status}`}>{labelForStatus(order.status)}</span>
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         {dateLabel(order.due_date)} {order.is_overdue && <span className="badge overdue">Overdue</span>}
@@ -1151,6 +1178,7 @@ export function CustomerOrdersPage() {
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button type="button" className="btn sm" onClick={() => void openCustomerMeasurements(customer)}>Measurements</button>
+                    <button type="button" className="btn sm" onClick={() => void openCustomerHistory(customer)}>History</button>
                     <button type="button" className="btn sm" onClick={() => openCustomerEdit(customer)}>Edit</button>
                     <button
                       type="button"
@@ -1479,14 +1507,104 @@ export function CustomerOrdersPage() {
           {loadingCustomerMeasurements ? (
             <p style={{ color: 'var(--t2)' }}>Loading customer measurements…</p>
           ) : (
-            <MeasurementEditor
-              tabs={enabledTabs}
-              activeTabId={customerMeasurementTab?.id || ''}
-              onTabChange={setCustomerMeasurementTabId}
-              values={customerMeasurementValues}
-              onChange={(fieldId, value) => setCustomerMeasurementValues((current) => ({ ...current, [fieldId]: value }))}
-              idPrefix="customer-master-measurement"
-            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div role="tablist" aria-label="Customer detail tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 4, borderBottom: '1px solid var(--bd)', marginBottom: 14 }}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={customerMeasurementViewTab === 'measurements'}
+                  onClick={() => setCustomerMeasurementViewTab('measurements')}
+                  style={{
+                    padding: '9px 12px',
+                    color: customerMeasurementViewTab === 'measurements' ? 'var(--pri)' : 'var(--t2)',
+                    borderBottom: customerMeasurementViewTab === 'measurements' ? '2px solid var(--pri)' : '2px solid transparent',
+                    fontWeight: customerMeasurementViewTab === 'measurements' ? 700 : 550,
+                    whiteSpace: 'nowrap',
+                    background: 'none',
+                    borderTop: 'none',
+                    borderLeft: 'none',
+                    borderRight: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Measurements
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={customerMeasurementViewTab === 'orders'}
+                  onClick={() => { setCustomerMeasurementViewTab('orders'); if (customerMeasurementCustomer) void loadCustomerOrders(customerMeasurementCustomer.id); }}
+                  style={{
+                    padding: '9px 12px',
+                    color: customerMeasurementViewTab === 'orders' ? 'var(--pri)' : 'var(--t2)',
+                    borderBottom: customerMeasurementViewTab === 'orders' ? '2px solid var(--pri)' : '2px solid transparent',
+                    fontWeight: customerMeasurementViewTab === 'orders' ? 700 : 550,
+                    whiteSpace: 'nowrap',
+                    background: 'none',
+                    borderTop: 'none',
+                    borderLeft: 'none',
+                    borderRight: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Order History
+                </button>
+              </div>
+              {customerMeasurementViewTab === 'measurements' && (
+                <MeasurementEditor
+                  tabs={enabledTabs}
+                  activeTabId={customerMeasurementTabId || ''}
+                  onTabChange={setCustomerMeasurementTabId}
+                  values={customerMeasurementValues}
+                  onChange={(fieldId, value) => setCustomerMeasurementValues((current) => ({ ...current, [fieldId]: value }))}
+                  idPrefix="customer-master-measurement"
+                />
+              )}
+              {customerMeasurementViewTab === 'orders' && (
+                <div>
+                  {loadingCustomerOrders && !hasLoadedCustomerOrders ? (
+                    <p style={{ color: 'var(--t2)', textAlign: 'center', padding: 32 }}>Loading orders…</p>
+                  ) : customerOrders.length === 0 ? (
+                    <p style={{ color: 'var(--t2)', textAlign: 'center', padding: 32 }}>No orders found for this customer.</p>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="stable-data-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 700 }}>
+                        <thead>
+                          <tr style={{ color: 'var(--t2)', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid var(--bd)' }}>
+                            {['Order', 'Status', 'Due date', 'Order date', ''].map((heading) => <th key={heading} style={{ padding: '12px 16px' }}>{heading}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {customerOrders.map((order) => (
+                            <tr
+                              key={order.id}
+                              className="record-row"
+                              tabIndex={0}
+                              aria-label={`Open order ${order.order_number}`}
+                              onClick={(event) => handleRecordRowClick(event, () => { setCustomerMeasurementCustomer(null); void openOrder(order.id); })}
+                              onKeyDown={(event) => handleRecordRowKeyDown(event, () => { setCustomerMeasurementCustomer(null); void openOrder(order.id); })}
+                              style={{ borderBottom: '1px solid var(--bd)' }}
+                            >
+                              <td style={{ padding: '14px 16px', fontWeight: 750 }}>{order.order_number}</td>
+                              <td style={{ padding: '14px 16px' }}>
+                                <span className={`badge status-${order.status}`}>{labelForStatus(order.status)}</span>
+                              </td>
+                              <td style={{ padding: '14px 16px' }}>
+                                {dateLabel(order.due_date)} {order.is_overdue && <span className="badge overdue">Overdue</span>}
+                              </td>
+                              <td style={{ padding: '14px 16px', color: 'var(--t2)' }}>{dateLabel(order.order_date)}</td>
+                              <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                                <button type="button" className="btn sm" onClick={(e) => { e.stopPropagation(); setCustomerMeasurementCustomer(null); void openOrder(order.id); }}>View</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
             <button type="button" className="btn" onClick={() => setCustomerMeasurementCustomer(null)}>Close</button>
@@ -1519,8 +1637,11 @@ export function CustomerOrdersPage() {
               {selectedOrder.customer.address && <div style={{ color: 'var(--t2)', fontSize: '12.5px', marginTop: 2 }}>📍 {selectedOrder.customer.address}</div>}
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {prevStatus && selectedOrder.status !== 'order_received' && selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'delivered' && (
+                <button type="button" className="btn sm" onClick={() => void changeStatus(prevStatus.value)}>Previous: {prevStatus.label}</button>
+              )}
               {nextStatus && selectedOrder.status !== 'cancelled' && selectedOrder.status !== 'delivered' && (
-                <button type="button" className="btn pri sm" onClick={() => void changeStatus(nextStatus.value)}>Move to {nextStatus.label}</button>
+                <button type="button" className="btn pri sm" onClick={() => void changeStatus(nextStatus.value)}>Next: {nextStatus.label}</button>
               )}
               {selectedOrder.status !== 'cancelled' && (
                 <button type="button" className="btn danger sm" onClick={() => void changeStatus('cancelled')}>Cancel order</button>

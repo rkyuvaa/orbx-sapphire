@@ -544,21 +544,50 @@ async def test_order_status_requires_sequential_progress_and_cancel_reason(
     )
     assert skipped.status_code == 400
 
+    # Cancel without reason (should work now)
     no_reason = await client.patch(
         f"/api/v1/orders/{order_id}/status",
         headers=headers,
         json={"status": "cancelled"},
     )
-    assert no_reason.status_code == 400
+    assert no_reason.status_code == 200
+    assert no_reason.json()["status"] == "cancelled"
+    assert no_reason.json()["status_history"][-1]["reason"] is None
+
+    # Create a second order to test advance then cancel with reason
+    customer2 = await client.post(
+        "/api/v1/orders/customers",
+        headers=headers,
+        json={"name": "Status Test 2", "phone_number": "+919876543213"},
+    )
+    assert customer2.status_code == 201
+    order2 = await client.post(
+        "/api/v1/orders",
+        headers=headers,
+        json={"customer_id": customer2.json()["id"]},
+    )
+    assert order2.status_code == 201
+    order_id_2 = order2.json()["id"]
 
     advanced = await client.patch(
-        f"/api/v1/orders/{order_id}/status",
+        f"/api/v1/orders/{order_id_2}/status",
         headers=headers,
         json={"status": "material_marking"},
     )
     assert advanced.status_code == 200
     assert advanced.json()["status"] == "material_marking"
     assert len(advanced.json()["status_history"]) == 2
+
+    # Cancel with reason (should work)
+    cancelled = await client.patch(
+        f"/api/v1/orders/{order_id_2}/status",
+        headers=headers,
+        json={"status": "cancelled", "reason": "Customer changed mind"},
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert len(cancelled.json()["status_history"]) == 3
+    assert cancelled.json()["status_history"][-1]["reason"] == "Customer changed mind"
 
 
 @pytest.mark.asyncio

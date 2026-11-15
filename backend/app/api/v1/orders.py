@@ -227,17 +227,20 @@ async def create_order(
 async def list_orders(
     tenant: tuple[Company, CompanyMembership] = Depends(get_tenant_context),
     db: AsyncSession = Depends(get_db),
-    status_filter: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
     customer_id: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    overdue: Optional[bool] = Query(None),
+    due_date_from: Optional[datetime] = Query(None),
+    due_date_to: Optional[datetime] = Query(None),
 ):
     """List orders for current company with optional filtering."""
     company, _ = tenant
 
     stmt = select(Order).where(Order.company_id == company.id)
 
-    if status_filter:
-        stmt = stmt.where(Order.status == status_filter)
+    if status:
+        stmt = stmt.where(Order.status == status)
     if customer_id:
         stmt = stmt.where(Order.customer_id == customer_id)
     if search and search.strip():
@@ -253,6 +256,16 @@ async def list_orders(
                 ),
             )
         )
+    if overdue is True:
+        now = datetime.now(timezone.utc)
+        stmt = stmt.where(
+            Order.due_date < now,
+            Order.status.not_in({"delivered", "cancelled"}),
+        )
+    if due_date_from is not None:
+        stmt = stmt.where(Order.due_date >= due_date_from)
+    if due_date_to is not None:
+        stmt = stmt.where(Order.due_date <= due_date_to)
 
     result = await db.execute(
         stmt.options(selectinload(Order.customer)).order_by(Order.created_at.desc())
@@ -467,9 +480,7 @@ async def update_order_status(
 
     next_status = data.status.value
     if next_status == "cancelled":
-        reason = (data.reason or "").strip()
-        if not reason:
-            raise HTTPException(status_code=400, detail="A cancellation reason is required")
+        reason = (data.reason or "").strip() if data.reason else None
     else:
         try:
             current_position = next(
@@ -482,10 +493,11 @@ async def update_order_status(
             )
         except StopIteration as error:
             raise HTTPException(status_code=400, detail="Order has an invalid status") from error
-        if next_position != current_position + 1:
+        # Allow moving forward by one step OR backward by one step (but not jumping)
+        if next_position != current_position + 1 and next_position != current_position - 1:
             raise HTTPException(
                 status_code=400,
-                detail="Orders must move through each status in sequence",
+                detail="Orders must move through each status in sequence (forward or backward by one step)",
             )
         reason = data.reason.strip() if data.reason else None
 
