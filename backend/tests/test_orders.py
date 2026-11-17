@@ -324,6 +324,19 @@ async def test_upcoming_orders_use_local_days_and_exclude_terminal_or_other_comp
 
 
 @pytest.mark.asyncio
+async def test_upcoming_orders_accept_legacy_alias_timezone(
+    client: AsyncClient, seed_data
+):
+    headers = await auth_headers(client, "owner1@company-a.com", seed_data["comp1"].id)
+    response = await client.get(
+        "/api/v1/orders/upcoming?timezone=Asia%2FCalcutta",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert isinstance(response.json(), list)
+
+
+@pytest.mark.asyncio
 async def test_order_creation_auto_saves_customer_and_tracks_status(client: AsyncClient, seed_data):
     headers = await auth_headers(client, "owner1@company-a.com", seed_data["comp1"].id)
 

@@ -1,6 +1,14 @@
+import os
 from datetime import datetime, time, timedelta, timezone
 from typing import Optional, List
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+try:
+    from tzdata import zoneinfo as _tzdata_zoneinfo  # type: ignore
+
+    _TZDATA_ZONE_DIR = str(_tzdata_zoneinfo.__path__[0])
+except Exception:  # pragma: no cover - tzdata package missing
+    _TZDATA_ZONE_DIR = None
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, update, delete, or_, func, asc, desc
@@ -297,6 +305,21 @@ async def list_orders(
     return output
 
 
+def _resolve_timezone(timezone_name: str) -> Optional[ZoneInfo]:
+    try:
+        return ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError):
+        pass
+    if _TZDATA_ZONE_DIR:
+        candidate = os.path.normpath(os.path.join(_TZDATA_ZONE_DIR, timezone_name))
+        if candidate.startswith(_TZDATA_ZONE_DIR + os.sep) and os.path.isfile(candidate):
+            try:
+                return ZoneInfo.from_file(open(candidate, "rb"), key=timezone_name)
+            except (ValueError, ZoneInfoNotFoundError, OSError):
+                return None
+    return None
+
+
 @router.get("/upcoming", response_model=List[OrderListOut])
 async def list_upcoming_orders(
     timezone_name: str = Query(..., alias="timezone", min_length=1, max_length=100),
@@ -305,10 +328,9 @@ async def list_upcoming_orders(
 ):
     """List non-terminal orders due within the next five local calendar days."""
     company, _ = tenant
-    try:
-        local_timezone = ZoneInfo(timezone_name)
-    except (ValueError, ZoneInfoNotFoundError) as error:
-        raise HTTPException(status_code=400, detail="Invalid timezone") from error
+    local_timezone = _resolve_timezone(timezone_name)
+    if local_timezone is None:
+        raise HTTPException(status_code=400, detail="Invalid timezone")
 
     today = datetime.now(local_timezone).date()
     start_local = datetime.combine(today, time.min, tzinfo=local_timezone)
